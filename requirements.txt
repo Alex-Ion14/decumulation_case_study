@@ -1,0 +1,5 @@
+numpy>=1.21
+pandas>=1.4
+pyarrow>=10
+torch>=1.11
+matplotlib>=3.5
