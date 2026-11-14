@@ -53,8 +53,8 @@ def main():
     parser.add_argument("strategy", nargs="?", default=os.path.join(ROOT, "strategies", "run.py"))
     parser.add_argument("--sets", type=int, default=10, help="use sets 0 .. SETS-1 (at most 50)")
     parser.add_argument("--k", type=float, nargs="+", default=[K], help="withdrawal factors to compare")
-    parser.add_argument("--weights", choices=["bengen", "learned"], default="bengen",
-                        help="bengen: fixed 50/50 US equity / 5Y Treasury; learned: 7 weights trained per set")
+    parser.add_argument("--weights", choices=["yearly", "yield", "bengen", "learned"], default="yearly",
+                        help="yearly / yield: the weights team tables; bengen: 50/50; learned: trained per set")
     args = parser.parse_args()
 
     if not os.path.exists(set_path(0)):

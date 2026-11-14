@@ -1,7 +1,7 @@
 """Train and score strategies, and compare them with the frontier of static Bengen strategies.
 
-    python main.py                          # the example strategy
-    python main.py strategies/run.py   # your strategy
+    python main.py                          # 4% rule vs. the optimised example vs. our strategy
+    python main.py strategies/run.py   # only your strategy (vs. the 4% rule)
     python main.py strategies/run.py --no-frontier   # faster, skips the frontier
 
 For every strategy file, main.py creates ``Strategy()``, calls ``fit`` on the train
@@ -43,6 +43,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "strategies", "bengen.py")
 EXAMPLE = os.path.join(HERE, "strategies", "bengen_optimised.py")
+OURS = os.path.join(HERE, "strategies", "run.py")  # our submission, included when no strategy is named
 FRONTIER_ALPHAS = [0.0, 0.25, 0.4, 0.5, 0.6, 0.7, 1.0]
 SEED = 0
 
@@ -106,7 +107,8 @@ def plot_frontier(frontier, results):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("strategies", nargs="*", default=[EXAMPLE], help="strategy files to evaluate")
+    parser.add_argument("strategies", nargs="*", default=[EXAMPLE, OURS],
+                        help="strategy files to evaluate (default: bengen_optimised and run)")
     parser.add_argument("--train", default=os.path.join(HERE, "data", "train.parquet"), help="train scenarios")
     parser.add_argument("--test", default=os.path.join(HERE, "data", "validation.parquet"), help="test scenarios")
     parser.add_argument("--no-frontier", action="store_true", help="skip the frontier (it takes a while)")

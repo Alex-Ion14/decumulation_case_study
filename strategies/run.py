@@ -2,9 +2,17 @@
 
 The two parts are separate:
   - HOW MUCH to withdraw: `strategies/withdrawal.py`, "withdraw 90% of wealth / years left".
-  - HOW to invest: a weights model. `StaticWeights` below is a stand-in (7 learned weights,
-    the same every year) to be replaced by the weights team's model. Any model works as long
-    as it has `parameters()` (the tensors to train) and `weights(obs)` (shape (A,) or (N, A)).
+  - HOW to invest: a weights model, chosen with WEIGHTS below. The default is the weights
+    team's yearly table (`yield_mlp/yearly_table.py`, one portfolio per year), read straight
+    from their file. Any model works as long as it has `parameters()` (the tensors to train,
+    or none) and `weights(obs)` (shape (A,) or (N, A)).
+
+Challenge rules: the yearly and yield tables were learned beforehand from the pool scenarios
+(train AND validation, see yield_mlp/README.md), not in `fit`. With those weights `fit` does
+nothing, and the scores that main.py prints on data/validation.parquet are not a fair check;
+use `--test data/test_set.parquet` for that. Mention this in the submission.
+
+The notes below are about WEIGHTS = "learned", the only option that is trained in `fit`.
 
 Why the weights are trained WITH the withdrawal rule in the loop: the best weights depend on
 how you withdraw. Spending that adapts to wealth absorbs bad years, so it can carry different
@@ -22,7 +30,7 @@ plus their stressed copy. The model then never sees the same 100 scenarios twice
 memorise them. This only uses the train scenarios that `fit` receives, so it keeps to the
 challenge rules. Set BATCH = None to train on the train scenarios themselves.
 
-No other files were changed.
+No files outside strategies/ and experiments/ were changed by the withdrawal team.
 """
 
 import os
@@ -48,11 +56,59 @@ TAU_START, TAU_END = 0.1, 0.005  # smoothness of the ruin approximation (as in b
 STRESS = {"growth": 0.035, "bonds": 0.01, "cash": 0.015}  # lower yearly returns in the stressed copy
 
 # Which weights to use when no weights model is passed in:
-#   "bengen"  : the fixed 4% rule mix (50% US equity, 50% US Treasury 5Y), nothing to train,
-#               so the withdrawal rule can be judged on its own;
+#   "yearly"  : the weights team's yearly table (yield_mlp/yearly_table.py): one fixed
+#               portfolio per year, the average of what their yield model holds that year;
+#   "yield"   : the weights team's yield table (yield_mlp/hardcoded_strategy.py): the
+#               portfolio depends on last year's 5Y and 30Y Treasury yields;
+#   "bengen"  : the fixed 4% rule mix (50% US equity, 50% US Treasury 5Y);
 #   "learned" : StaticWeights, 7 weights trained together with the withdrawal rule.
-WEIGHTS = "bengen"
+# Only "learned" is trained in fit; the others are fixed tables.
+WEIGHTS = "yearly"
 BENGEN_ALLOCATION = {"US equity": 0.5, "US Treasury 5Y": 0.5}
+
+
+def reorder(table_assets, asset_names):
+    """Index that puts weights listed in `table_assets` order into `asset_names` order."""
+    if sorted(table_assets) != sorted(asset_names):
+        raise ValueError(f"the weights table has assets {table_assets}, the simulator {asset_names}")
+    return torch.tensor([table_assets.index(name) for name in asset_names])
+
+
+class YearlyTableWeights:
+    """The weights team's yearly table: portfolio number t in year t, the same in every scenario."""
+
+    def __init__(self, asset_names):
+        from yield_mlp import yearly_table
+
+        table = torch.tensor(yearly_table.YEARLY_PORTFOLIOS, dtype=DTYPE)  # (30, 7)
+        self.table = table[:, reorder(yearly_table.ASSETS, asset_names)]
+
+    def parameters(self):
+        return []
+
+    def weights(self, obs):
+        return self.table[obs.year]
+
+
+class YieldTableWeights:
+    """The weights team's yield table: the portfolio follows last year's 5Y and 30Y yields."""
+
+    def __init__(self, asset_names):
+        from yield_mlp import hardcoded_strategy
+
+        self.table = hardcoded_strategy
+        self.order = reorder(hardcoded_strategy.ASSETS, asset_names)
+
+    def parameters(self):
+        return []
+
+    def weights(self, obs):
+        if obs.year == 0:  # no yields known yet
+            return torch.tensor(self.table.FIRST_YEAR_PORTFOLIO, dtype=DTYPE)[self.order]
+        last = obs.market_history[-1]
+        five_year = last[:, obs.market_names.index("US_ZC_5Y")]
+        thirty_year = last[:, obs.market_names.index("US_ZC_30Y")]
+        return self.table.look_up_portfolio(five_year, thirty_year)[:, self.order]
 
 
 class FixedWeights:
@@ -94,16 +150,19 @@ class Strategy:
         self.weights_model = weights_model
         self.k = k  # withdrawal factor: withdraw k * wealth / years left
         self.seed = seed  # for the bootstrap draws
-        self.weights = weights  # used only when no weights_model is given: "bengen" or "learned"
+        self.weights = weights  # used only when no weights_model is given (see WEIGHTS)
 
     def fit(self, train, cfg):
         if self.weights_model is None:
-            if self.weights == "bengen":
-                self.weights_model = FixedWeights(BENGEN_ALLOCATION, train.asset_names)
-            elif self.weights == "learned":
-                self.weights_model = StaticWeights(train.n_assets)
-            else:
-                raise ValueError(f"unknown weights {self.weights!r}: use 'bengen' or 'learned'")
+            models = {
+                "yearly": lambda: YearlyTableWeights(train.asset_names),
+                "yield": lambda: YieldTableWeights(train.asset_names),
+                "bengen": lambda: FixedWeights(BENGEN_ALLOCATION, train.asset_names),
+                "learned": lambda: StaticWeights(train.n_assets),
+            }
+            if self.weights not in models:
+                raise ValueError(f"unknown weights {self.weights!r}: use one of {list(models)}")
+            self.weights_model = models[self.weights]()
         if not list(self.weights_model.parameters()):
             return  # fixed weights: nothing to train
         sampler = BlockBootstrap(train, block_years=BLOCK_YEARS, seed=self.seed) if BATCH else None
