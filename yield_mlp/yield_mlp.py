@@ -19,7 +19,7 @@ model assumes that both yields are at their normal (average) level.
 ONE MODEL OR MANY?
 ------------------
 A single network depends on which data set it happened to be trained on. So we train one
-network on each of 20 data sets and invest in the AVERAGE of the 20 portfolios they propose.
+network on each of the 50 data sets and invest in the AVERAGE of the 50 portfolios they propose.
 Where the networks agree the average is clear-cut; where they disagree it is a compromise.
 
 THE RESULT AS A TABLE
@@ -75,8 +75,9 @@ YIELDS = ["US_ZC_5Y", "US_ZC_30Y"]
 WITHDRAWAL_RATE = 0.04  # 4% of the starting capital per year, fixed
 
 # How many of the 50 bootstrapped data sets to use (see bootstrap/README.md). One network is
-# trained on each, and their portfolios are averaged. Each set takes about 15 seconds.
-NUMBER_OF_DATA_SETS = 20
+# trained on each, and their portfolios are averaged. Each set takes about 15 seconds, so
+# all 50 take about 12 minutes. Use a smaller number (for example 5) for a quick try-out.
+NUMBER_OF_DATA_SETS = 50
 
 # The yields (in percent) for which the table in hardcoded_strategy.py gets an entry. The
 # same steps are used for the 5-year and the 30-year yield. In the data both yields lie
