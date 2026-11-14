@@ -1,4 +1,5 @@
-"""Block bootstrap: build new 30-year scenarios by gluing together runs of years.
+"""Block bootstrap, copied from the data team's bootstrap/sampler.py so that strategies/run.py
+does not depend on the bootstrap/ folder. Keep the two in step if the data team changes theirs.
 
 Every new scenario is made of *blocks*: a few consecutive years copied from one existing
 scenario, followed by a few consecutive years copied from another, and so on until the
@@ -7,7 +8,7 @@ and the extra market variables), so the way the assets move together is kept. Co
 years in a row keeps most of the year-to-year patterns as well (for example, interest rates
 that stay low for a long time).
 
-    from bootstrap import BlockBootstrap, split_scenarios
+    from strategies.block_bootstrap import BlockBootstrap, split_scenarios
 
     fit_part, check_part = split_scenarios(train, holdout_fraction=0.2, seed=0)
     sampler = BlockBootstrap(fit_part, block_years=5, seed=0)

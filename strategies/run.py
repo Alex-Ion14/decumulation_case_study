@@ -2,17 +2,21 @@
 
 The two parts are separate:
   - HOW MUCH to withdraw: `strategies/withdrawal.py`, "withdraw 90% of wealth / years left".
-  - HOW to invest: a weights model, chosen with WEIGHTS below. The default is the weights
-    team's yearly table (`yield_mlp/yearly_table.py`, one portfolio per year), read straight
-    from their file. Any model works as long as it has `parameters()` (the tensors to train,
-    or none) and `weights(obs)` (shape (A,) or (N, A)).
+  - HOW to invest: a weights model, chosen with WEIGHTS below. The default ("yield_trained")
+    is the weights team's yield model (yield_mlp/), TRAINED IN `fit`: 50 small networks, each
+    on its own block bootstrap of the train scenarios, with a fixed 4% withdrawal (so our
+    withdrawal rule plays no part in choosing the weights). The portfolio is the average of
+    the 50 networks' portfolios for last year's 5Y and 30Y Treasury yields. See
+    `strategies/yield_weights.py`. Takes about 2 minutes.
+    Any model works as long as it has `parameters()` (the tensors to train, or none) and
+    `weights(obs)` (shape (A,) or (N, A)).
 
-Challenge rules: the yearly and yield tables were learned beforehand from the pool scenarios
-(train AND validation, see yield_mlp/README.md), not in `fit`. With those weights `fit` does
-nothing, and the scores that main.py prints on data/validation.parquet are not a fair check;
-use `--test data/test_set.parquet` for that. Mention this in the submission.
+Challenge rules: with "yield_trained", `fit` only uses the train scenarios it receives, so the
+scores on data/validation.parquet are a fair check. The other tables ("yearly", "yield") were
+learned beforehand from train AND validation scenarios (see yield_mlp/README.md); with those,
+`fit` does nothing and only --test data/test_set.parquet is a fair check.
 
-The notes below are about WEIGHTS = "learned", the only option that is trained in `fit`.
+The notes below are about WEIGHTS = "learned" (7 weights trained with our withdrawal rule).
 
 Why the weights are trained WITH the withdrawal rule in the loop: the best weights depend on
 how you withdraw. Spending that adapts to wealth absorbs bad years, so it can carry different
@@ -25,7 +29,7 @@ the train scenarios with lower returns (shares -3.5%/yr, bonds -1%, cash -1.5%) 
 ruin signal back.
 
 Why bootstrapped batches: every training step draws BATCH new scenarios from the train
-scenarios with the data team's block bootstrap (`bootstrap/`, blocks of BLOCK_YEARS years),
+scenarios with the data team's block bootstrap (copied into `strategies/block_bootstrap.py`, blocks of BLOCK_YEARS years),
 plus their stressed copy. The model then never sees the same 100 scenarios twice and cannot
 memorise them. This only uses the train scenarios that `fit` receives, so it keeps to the
 challenge rules. Set BATCH = None to train on the train scenarios themselves.
@@ -44,8 +48,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from bootstrap import BlockBootstrap  # noqa: E402
+from strategies.block_bootstrap import BlockBootstrap  # noqa: E402
 from strategies.withdrawal import K, spend_down_rate  # noqa: E402
+from strategies.yield_weights import AveragedYieldWeights, train_yield_networks  # noqa: E402
 from utils import DTYPE, Scenarios, evaluate, simulate  # noqa: E402
 
 STEPS = 300
@@ -56,14 +61,15 @@ TAU_START, TAU_END = 0.1, 0.005  # smoothness of the ruin approximation (as in b
 STRESS = {"growth": 0.035, "bonds": 0.01, "cash": 0.015}  # lower yearly returns in the stressed copy
 
 # Which weights to use when no weights model is passed in:
+#   "yield_trained" : the weights team's yield model, trained in fit (strategies/yield_weights.py);
 #   "yearly"  : the weights team's yearly table (yield_mlp/yearly_table.py): one fixed
 #               portfolio per year, the average of what their yield model holds that year;
 #   "yield"   : the weights team's yield table (yield_mlp/hardcoded_strategy.py): the
 #               portfolio depends on last year's 5Y and 30Y Treasury yields;
 #   "bengen"  : the fixed 4% rule mix (50% US equity, 50% US Treasury 5Y);
 #   "learned" : StaticWeights, 7 weights trained together with the withdrawal rule.
-# Only "learned" is trained in fit; the others are fixed tables.
-WEIGHTS = "yearly"
+# "yield_trained" and "learned" are trained in fit; the others are fixed.
+WEIGHTS = "yield_trained"
 BENGEN_ALLOCATION = {"US equity": 0.5, "US Treasury 5Y": 0.5}
 
 
@@ -155,6 +161,7 @@ class Strategy:
     def fit(self, train, cfg):
         if self.weights_model is None:
             models = {
+                "yield_trained": lambda: AveragedYieldWeights(train_yield_networks(train, seed=self.seed)),
                 "yearly": lambda: YearlyTableWeights(train.asset_names),
                 "yield": lambda: YieldTableWeights(train.asset_names),
                 "bengen": lambda: FixedWeights(BENGEN_ALLOCATION, train.asset_names),
