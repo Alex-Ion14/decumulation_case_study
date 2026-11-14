@@ -171,7 +171,7 @@ def simulate(strategy, sc, cfg):
 
     for t in range(n_years):
         obs = Observation(
-            year=t, n_years=n_years, asset_names=sc.asset_names, wealth=wealth, holdings=holdings,
+            year=t, n_years=n_years, asset_names=sc.asset_names, wealth=wealth, holdings=holdings, # type: ignore
             wealth_history=torch.stack(wealth_list),
             withdrawal_history=torch.stack(withdrawal_list) if t > 0 else torch.zeros(0, n, dtype=DTYPE),
             return_history=sc.returns[:t],
