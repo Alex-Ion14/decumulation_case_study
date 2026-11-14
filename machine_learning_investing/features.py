@@ -52,11 +52,16 @@ def _market_block(market, returns, inflation, names):
 class Features(nn.Module):
     """Turns an observation into a table of numbers (one row per scenario) for a model."""
 
-    def __init__(self, withdrawal_rate, use_market=True):
+    def __init__(self, withdrawal_rate, use_market=True, inputs=None):
+        """inputs: the names of the features the model gets (None: all of them)."""
         super().__init__()
         self.withdrawal_rate = withdrawal_rate
         self.use_market = use_market
-        self.names = STATE_NAMES + (MARKET_NAMES + ["has history"] if use_market else [])
+        all_names = STATE_NAMES + (MARKET_NAMES + ["has history"] if use_market else [])
+        if inputs is not None and set(inputs) - set(all_names):
+            raise ValueError(f"unknown inputs: {sorted(set(inputs) - set(all_names))}")
+        self.names = [name for name in all_names if inputs is None or name in inputs]
+        self.keep = [all_names.index(name) for name in self.names]
         self.register_buffer("mean", torch.zeros(len(MARKET_NAMES), dtype=DTYPE))
         self.register_buffer("std", torch.ones(len(MARKET_NAMES), dtype=DTYPE))
 
@@ -85,7 +90,7 @@ class Features(nn.Module):
         ]
         state = torch.stack(columns, dim=1)
         if not self.use_market:
-            return state
+            return state[:, self.keep]
         if obs.year == 0:
             market = torch.zeros(len(obs.wealth), len(MARKET_NAMES) + 1, dtype=DTYPE)
         else:
@@ -93,4 +98,4 @@ class Features(nn.Module):
                                   obs.market_names)
             block = ((block - self.mean) / self.std).clamp(-5, 5)
             market = torch.cat([block, torch.ones(len(obs.wealth), 1, dtype=DTYPE)], dim=1)
-        return torch.cat([state, market], dim=1)
+        return torch.cat([state, market], dim=1)[:, self.keep]

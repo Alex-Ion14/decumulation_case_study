@@ -43,7 +43,8 @@ class _Recorder:
 
 def outcomes(policy, scenarios, cfg):
     """Simulate without training. Returns per-scenario results and the weights of every year."""
-    policy.eval()
+    if hasattr(policy, "eval"):  # the case's own strategies (strategies/*.py) are not torch modules
+        policy.eval()
     recorder = _Recorder(policy)
     with torch.no_grad():
         out = simulate(recorder, scenarios, cfg)

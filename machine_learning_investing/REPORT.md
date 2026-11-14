@@ -6,7 +6,10 @@ With a fixed withdrawal of 4% (the Bengen assumption), it ends with a median wea
 The best fixed mix reaches 2.3 times and 11.9%; the Bengen 50/50 portfolio 0.6 times and 12.7%.
 Memory (GRU, LSTM) and Bayesian weights do not improve on the plain network.
 
-These numbers come from the 153 pool scenarios only. **The test set has not been used.**
+Those numbers come from the 153 pool scenarios. **On the 27 test scenarios the wealth gain
+holds up and the ruin gain does not:** the network ends with a median wealth of 3.7 times the
+initial capital against 0.8 for Bengen, but runs out of money about as often (10.6% against
+11.1%). See [Check on the test set](#check-on-the-test-set).
 
 ## What was tested
 
@@ -111,6 +114,36 @@ real estate, 14% US equity and little else (`results/allocation_by_year.png`). T
 hardly changes over the 30 years; the changes are between scenarios, driven by the rates.
 `results/allocation_all_models.png` shows the same picture for every model in the table above.
 
+## Does the network need all its inputs?
+
+No. `run_input_selection.py` trains the same network with fewer inputs on the same 20 folds
+(held-out results; "all inputs" is the market-aware MLP from the first table, trained again).
+
+| Inputs of the network | Number of inputs | Score | Ruin probability | Median final wealth | Sold per year |
+|---|---:|---:|---:|---:|---:|
+| none (learned static mix) | 0 | 1.05 | 11.9% | 2.3 | 6% |
+| everything except the interest rates | 17 | 1.11 | 12.9% | 2.4 | 18% |
+| all inputs | 24 | 1.35 | 9.5% | 3.6 | 19% |
+| interest rates and spreads, wealth and time | 11 | 1.39 | 7.4% | 3.4 | 14% |
+| interest rates and spreads | 8 | 1.37 | 9.0% | 3.4 | 14% |
+| three yields: 5-year, 30-year, T-bill | 4 | 1.36 | 9.7% | 3.5 | 12% |
+| two yields: 5-year and 30-year | 3 | 1.36 | 9.4% | 3.4 | 12% |
+
+- **Two yields are enough.** A network that only sees the 5-year and the 30-year yield scores
+  the same as the network with all 24 inputs (1.36 against 1.35) and trades a third less.
+- **The other 17 inputs are worth almost nothing.** Without the interest rates the network is
+  barely better than a fixed mix, and it trades three times as much.
+- **The differences between the reduced sets are noise.** Their scores differ from "all
+  inputs" by 0.01 to 0.04, with a spread of about 0.07 to 0.08 between folds. The median
+  final wealth is 0.1 to 0.2 lower, with a spread of about 0.6 to 0.7 between folds.
+- **The small networks do not overfit.** With two yields the score is 1.24 on the train
+  scenarios and 1.36 on the held-out scenarios; with all inputs it is 1.41 and 1.35.
+
+A network with two or three yields is the better choice: the same result, less that can go
+wrong, and a rule that can be described ("how much to hold in long bonds depends on the
+5-year and 30-year yield"). The count includes a flag that tells the network that year 0
+has no market information yet. None of this has been checked on the test set.
+
 ## How confident is the model?
 
 Two ways to get a confidence were tried (`run_confidence.py`, 8 folds):
@@ -151,11 +184,47 @@ portfolio. 100% means all networks propose the same portfolio.
 
 See `results/confidence_by_year.png`.
 
+## Check on the test set
+
+`run_test.py` scores the market-aware MLP and the Bengen rule on the 27 scenarios of
+`data/test_set.parquet`, which were not used for anything before. The MLP was trained 20
+times, once per bootstrapped set as in experiment 1; "ensemble" is the average portfolio of
+those 20 networks. One scenario is 3.7% of the test set.
+
+| Strategy | Ruined scenarios | Normalised withdrawals | J (alpha 0.25) | Median final wealth | Our score |
+|---|---:|---:|---:|---:|---:|
+| Bengen 4% rule | 3 of 27 (11.1%) | 0.974 | 0.160 | 0.8 | 0.47 |
+| Market MLP, average of the 20 networks | 2.9 of 27 (10.6%) | 0.971 | 0.164 | 3.7 | 1.40 |
+| Market MLP, single networks: lowest to highest | 2 to 4 of 27 | 0.961 to 0.984 | 0.129 to 0.190 | 2.8 to 4.7 | 1.29 to 1.52 |
+| Market MLP ensemble | 2 of 27 (7.4%) | 0.974 | 0.188 | 4.1 | 1.47 |
+
+- **The wealth gain is confirmed.** All 20 networks end with a higher median wealth than
+  Bengen, and the ensemble ends with more wealth than Bengen in 23 of the 27 scenarios.
+- **The ruin gain is not confirmed.** Of the 20 networks, 9 have two ruined scenarios, 5 have
+  three (the same as Bengen) and 6 have four. The ensemble has one ruined scenario fewer than
+  Bengen, which is too small a difference to count on.
+- **The bad scenarios stay bad.** Two test scenarios, both from the original validation file,
+  are ruined under Bengen, under the ensemble and under nearly all single networks. In the
+  12 test scenarios from that file the ensemble's median final wealth is 0.8 against 0.5 for
+  Bengen; in the 15 from the original train file it is 5.8 against 0.9.
+- **On the frontier plot the MLP sits next to Bengen** (`results/test_frontier.png`). That
+  plot shows ruin against withdrawals. Both strategies withdraw a fixed 4%, so they have the
+  same withdrawals and nearly the same ruin, and the extra wealth of the MLP is not visible
+  on it. The frontier point for alpha 0.25 (a static mix with a learned withdrawal rate) has
+  the same ruin as Bengen with 5% more withdrawals, so on this plot both are below the
+  frontier. Turning the MLP's extra wealth into withdrawals is the job of the withdrawal rule.
+- **The frontier here is trained on the pool,** and not on `data/train.parquet` as `main.py`
+  does by default, because that file contains 15 of the test scenarios.
+
+The test set has now been looked at once. Do not use these numbers to change the models,
+or it stops being a fair check.
+
 ## What to be careful about
 
-- **Not checked on the test set.** `data/test_set.parquet` was not read. All numbers are from
-  held-out scenarios of the pool, and training stopped at the best score on bootstrapped
-  scenarios made from those same held-out scenarios, so they are slightly optimistic.
+- **The pool numbers are slightly optimistic.** Training stopped at the best score on
+  bootstrapped scenarios made from the same held-out scenarios. The test set confirmed the
+  wealth gain but not the lower ruin.
+- **The test set is small.** 27 scenarios cannot tell a ruin probability of 9% from 12%.
 - **The folds overlap.** The 20 folds share scenarios: there are 152 different held-out
   scenarios in total, each used in several folds. "20 of 20 folds" is strong, but it is not
   20 independent experiments.
@@ -187,7 +256,9 @@ Run from the repository root, after `python -B bootstrap/datasets.py` has create
 | `run_comparison.py` | experiment 1: all models on 20 folds | 5 minutes |
 | `run_confidence.py` | experiment 2: deep ensemble and Bayesian confidence on 8 folds | 5 minutes |
 | `run_market_signals.py` | experiment 3: which inputs matter and what they change | a few minutes (not timed) |
-| `plots.py` | the four figures in `results/` | seconds |
+| `run_input_selection.py` | experiment 4: the network with fewer inputs, on 20 folds | 5 minutes |
+| `run_test.py` | the check on the test set and the frontier plot (**reads the test set**) | a few minutes (not timed) |
+| `plots.py` | the four figures of experiments 1 and 2 in `results/` | seconds |
 
 The tables behind this report are the CSV files in `results/`. The figures are not in git
 (the repository ignores PNG files); `plots.py` recreates them from the CSV files.

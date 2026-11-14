@@ -75,9 +75,10 @@ def _small_last_layer(layer):
 
 
 class MLPPolicy(Policy):
-    def __init__(self, use_market=True):
+    def __init__(self, use_market=True, inputs=None):
+        """inputs: the names of the features the network gets (None: all, see features.py)."""
         super().__init__()
-        self.features = Features(self.rate, use_market)
+        self.features = Features(self.rate, use_market, inputs)
         self.net = nn.Sequential(
             nn.Linear(self.features.size, HIDDEN), nn.Tanh(),
             nn.Linear(HIDDEN, HIDDEN), nn.Tanh(),
