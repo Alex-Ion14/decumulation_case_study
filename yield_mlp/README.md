@@ -18,9 +18,15 @@ Every year it looks at two numbers, both known at that moment:
 From these it decides how to spread the money over the 7 assets. It uses nothing else. The
 withdrawal is fixed at 4% of the starting capital per year, as in the Bengen rule.
 
-One network is trained on each of 20 bootstrapped data sets, and the model invests in the
-**average of the 20 portfolios** they propose. A single network depends on which data set it
-happened to get; the average does not.
+One network is trained on each of the 50 bootstrapped data sets, and the model invests in
+the **average of the 50 portfolios** they propose. A single network depends on which data
+set it happened to get; the average does not. The number of sets is `NUMBER_OF_DATA_SETS`
+at the top of `yield_mlp.py`.
+
+**The tables and results further down this page, and the current `hardcoded_strategy.py`
+and `yearly_table.py`, are from a run with 20 data sets.** Running the script with 50 sets
+writes a new `hardcoded_strategy.py`; run `make_yearly_table.py` afterwards to renew the
+year table as well.
 
 ## Run it
 
@@ -30,7 +36,7 @@ From the project folder, after `python -B bootstrap/datasets.py` has created the
 python -B yield_mlp/yield_mlp.py
 ```
 
-This takes about 5 minutes. It trains the 20 networks, prints how each does on scenarios it
+This takes about 12 minutes for 50 sets. It trains the networks, prints how each does on scenarios it
 has never seen, prints a short table of what the averaged model does and writes
 `hardcoded_strategy.py`. It does not read the test set.
 
