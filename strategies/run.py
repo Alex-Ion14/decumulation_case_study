@@ -1,40 +1,30 @@
-"""Submission: a portfolio-weights model combined with the spend-down withdrawal rule.
+"""Our strategy: invest with a small yield model, withdraw by "wealth / years left".
 
-The two parts are separate:
-  - HOW MUCH to withdraw: `strategies/withdrawal.py`, "withdraw 90% of wealth / years left".
-  - HOW to invest: a weights model, chosen with WEIGHTS below. The default ("yield_trained")
-    is the weights team's yield model (yield_mlp/), TRAINED IN `fit`: 50 small networks, each
-    on its own block bootstrap of the train scenarios, with a fixed 4% withdrawal (so our
-    withdrawal rule plays no part in choosing the weights). The portfolio is the average of
-    the 50 networks' portfolios for last year's 5Y and 30Y Treasury yields. See
-    `strategies/yield_weights.py`. Takes about 2 minutes.
-    Any model works as long as it has `parameters()` (the tensors to train, or none) and
-    `weights(obs)` (shape (A,) or (N, A)).
+Our strategy has two separate parts.
 
-Challenge rules: with "yield_trained", `fit` only uses the train scenarios it receives, so the
-scores on data/validation.parquet are a fair check. The other tables ("yearly", "yield") were
-learned beforehand from train AND validation scenarios (see yield_mlp/README.md); with those,
-`fit` does nothing and only --test data/test_set.parquet is a fair check.
+1. How we invest (trained in `fit`, about 2 minutes). We train 50 small neural networks that
+   look at last year's 5-year and 30-year Treasury yields and choose the 7 portfolio weights.
+   Each network learns from its own block bootstrap of the train scenarios: we split the 100
+   train scenarios 80/20, cut 500 new scenarios from the 80 and 125 from the 20 (blocks of 5
+   years), train on the 500 and keep the version that does best on the 125. While training
+   the weights we use a fixed 4% withdrawal, so the weights do not depend on our withdrawal
+   rule. We invest in the average portfolio of the 50 networks. In short: mostly shares when
+   yields are low, more 30-year bonds when yields are high.
 
-The notes below are about WEIGHTS = "learned" (7 weights trained with our withdrawal rule).
+2. How much we withdraw. Every year we take 90% of (current wealth / years left). After good
+   years we spend more, after bad years less, and the pot is used up by the end instead of
+   being left over. The 10% margin keeps a buffer; higher factors raised the ruin probability
+   quickly in our tests, lower ones only lowered the withdrawals.
 
-Why the weights are trained WITH the withdrawal rule in the loop: the best weights depend on
-how you withdraw. Spending that adapts to wealth absorbs bad years, so it can carry different
-risk than a fixed 4% withdrawal.
+`fit` only uses the train scenarios it receives, so data/validation.parquet stays unseen. On
+it we get a ruin probability of 16% against 22.5% for the 4% rule, and about 70% more withdrawals
+(norm_wd 1.65 against 0.96).
 
-Why on train + a stressed copy of train: with the spend-down rule the train scenarios almost
-never run out of money, so the ruin term in the loss gives no signal and the optimiser
-simply buys more risk. That looked better on train and worse on validation. Adding a copy of
-the train scenarios with lower returns (shares -3.5%/yr, bonds -1%, cash -1.5%) brings the
-ruin signal back.
-
-Why bootstrapped batches: every training step draws BATCH new scenarios from the train
-scenarios with the data team's block bootstrap (copied into `strategies/block_bootstrap.py`, blocks of BLOCK_YEARS years),
-plus their stressed copy. The model then never sees the same 100 scenarios twice and cannot
-memorise them. This only uses the train scenarios that `fit` receives, so it keeps to the
-challenge rules. Set BATCH = None to train on the train scenarios themselves.
-
-No files outside strategies/ and experiments/ were changed by the withdrawal team.
+Files: helpers in strategies/ (withdrawal.py: the withdrawal rule; yield_weights.py: the
+networks and their training; block_bootstrap.py: a copy of our data team's bootstrap). Changes
+to other files: main.py also runs this strategy when no strategy is named (the evaluation
+command is unaffected), and utils.py has one `# type: ignore` comment. `simulate`, `evaluate`
+and `Config` are unchanged. WEIGHTS below switches to other weights we tried.
 """
 
 import os
