@@ -25,11 +25,20 @@ challenge rules. Set BATCH = None to train on the train scenarios themselves.
 No other files were changed.
 """
 
+import os
+import sys
+
 import torch
 
-from bootstrap import BlockBootstrap
-from strategies.withdrawal import K, spend_down_rate
-from utils import DTYPE, Scenarios, evaluate, simulate
+# The imports below live in the repository root. main.py puts it on the path already; this
+# line also makes `python strategies/run.py` (or an editor's Run button) work.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from bootstrap import BlockBootstrap  # noqa: E402
+from strategies.withdrawal import K, spend_down_rate  # noqa: E402
+from utils import DTYPE, Scenarios, evaluate, simulate  # noqa: E402
 
 STEPS = 300
 BATCH = 256  # bootstrapped scenarios per step (None: use the train scenarios as they are)
@@ -37,6 +46,26 @@ BLOCK_YEARS = 5  # length of a bootstrap block; the data team recommends 5 to 10
 LEARNING_RATE = 0.05
 TAU_START, TAU_END = 0.1, 0.005  # smoothness of the ruin approximation (as in bengen_optimised)
 STRESS = {"growth": 0.035, "bonds": 0.01, "cash": 0.015}  # lower yearly returns in the stressed copy
+
+# Which weights to use when no weights model is passed in:
+#   "bengen"  : the fixed 4% rule mix (50% US equity, 50% US Treasury 5Y), nothing to train,
+#               so the withdrawal rule can be judged on its own;
+#   "learned" : StaticWeights, 7 weights trained together with the withdrawal rule.
+WEIGHTS = "bengen"
+BENGEN_ALLOCATION = {"US equity": 0.5, "US Treasury 5Y": 0.5}
+
+
+class FixedWeights:
+    """The same given allocation in every year and every scenario; nothing to train."""
+
+    def __init__(self, allocation, asset_names):
+        self.w = torch.tensor([allocation.get(name, 0.0) for name in asset_names], dtype=DTYPE)
+
+    def parameters(self):
+        return []
+
+    def weights(self, obs):
+        return self.w
 
 
 class StaticWeights:
@@ -61,14 +90,22 @@ def with_stressed_copy(sc):
 
 
 class Strategy:
-    def __init__(self, weights_model=None, k=K, seed=0):
+    def __init__(self, weights_model=None, k=K, seed=0, weights=WEIGHTS):
         self.weights_model = weights_model
         self.k = k  # withdrawal factor: withdraw k * wealth / years left
         self.seed = seed  # for the bootstrap draws
+        self.weights = weights  # used only when no weights_model is given: "bengen" or "learned"
 
     def fit(self, train, cfg):
         if self.weights_model is None:
-            self.weights_model = StaticWeights(train.n_assets)
+            if self.weights == "bengen":
+                self.weights_model = FixedWeights(BENGEN_ALLOCATION, train.asset_names)
+            elif self.weights == "learned":
+                self.weights_model = StaticWeights(train.n_assets)
+            else:
+                raise ValueError(f"unknown weights {self.weights!r}: use 'bengen' or 'learned'")
+        if not list(self.weights_model.parameters()):
+            return  # fixed weights: nothing to train
         sampler = BlockBootstrap(train, block_years=BLOCK_YEARS, seed=self.seed) if BATCH else None
         optimizer = torch.optim.Adam(self.weights_model.parameters(), lr=LEARNING_RATE)
 
@@ -92,3 +129,11 @@ class Strategy:
 
     def act(self, obs):
         return self.weights_model.weights(obs), spend_down_rate(obs, self.k)
+
+
+if __name__ == "__main__":
+    # `python strategies/run.py [options]` is the same as `python main.py strategies/run.py [options]`
+    import main
+
+    sys.argv = [os.path.join(ROOT, "main.py"), os.path.abspath(__file__), *sys.argv[1:]]
+    main.main()

@@ -53,6 +53,8 @@ def main():
     parser.add_argument("strategy", nargs="?", default=os.path.join(ROOT, "strategies", "run.py"))
     parser.add_argument("--sets", type=int, default=10, help="use sets 0 .. SETS-1 (at most 50)")
     parser.add_argument("--k", type=float, nargs="+", default=[K], help="withdrawal factors to compare")
+    parser.add_argument("--weights", choices=["bengen", "learned"], default="bengen",
+                        help="bengen: fixed 50/50 US equity / 5Y Treasury; learned: 7 weights trained per set")
     args = parser.parse_args()
 
     if not os.path.exists(set_path(0)):
@@ -66,7 +68,7 @@ def main():
         train, validation = load_set(s)
         for k in args.k:
             torch.manual_seed(s)
-            strategy = Strategy(k=k, seed=s)
+            strategy = Strategy(k=k, seed=s, weights=args.weights)
             with contextlib.redirect_stdout(io.StringIO()):  # hide the training output
                 strategy.fit(train, cfg)
             for name, scenarios in [("val", validation), ("test", test)]:
